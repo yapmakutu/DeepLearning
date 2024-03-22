@@ -19,6 +19,15 @@ class TestEncoderBlock(unittest.TestCase):
         # Verify the output shape
         self.assertEqual(output.shape, [1, 128, 128, 32])  # Example expected shape, adjust as necessary
 
+    def test_invalid_filters(self):
+        with self.assertRaises(ValueError):
+            EncoderBlock(filters=-16, rate=0.2, pooling=True)  # Negative filters should raise an error
+
+    def test_none_input(self):
+        encoder_block = EncoderBlock(filters=32, rate=0.1, pooling=True)  # Create the block first
+        with self.assertRaises(TypeError):
+            output, _ = encoder_block(None)  # Passing None should raise an error
+
 
 class TestDecoderBlock(unittest.TestCase):
     def setUp(self):
