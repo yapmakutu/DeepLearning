@@ -1,12 +1,18 @@
 import cv2
 import numpy as np
-from tensorflow.keras.layers import Layer, Conv2D, Dropout, MaxPool2D, UpSampling2D, concatenate
-from tensorflow.keras.models import load_model
+import tensorflow as tf
+from keras.layers import Layer, Conv2D, Dropout, MaxPool2D, UpSampling2D, concatenate
+from keras.models import load_model
 
 
 class EncoderBlock(Layer):
     def __init__(self, filters, rate, pooling=True, **kwargs):
         super(EncoderBlock, self).__init__(**kwargs)
+        if filters <= 0:
+            raise ValueError("Filters must be a positive integer")
+        if not (0.0 <= rate <= 1.0):
+            raise ValueError("Rate must be a float between 0.0 and 1.0")
+
         self.filters = filters
         self.rate = rate
         self.pooling = pooling
@@ -18,6 +24,9 @@ class EncoderBlock(Layer):
         self.pool = MaxPool2D()
 
     def call(self, X, **kwargs):
+        if not isinstance(X, tf.Tensor):
+            raise TypeError("Input must be a TensorFlow tensor")
+
         x = self.c1(X)
         x = self.drop(x)
         x = self.c2(x)
@@ -83,6 +92,14 @@ if __name__ == "__main__":
     # Load the U-Net model
     unet_model = r"C:\Users\AhmetSahinCAKIR\Desktop\Ahmet\Bitirme\Modeller\final_model.h5"
     image_path = r"C:\Users\AhmetSahinCAKIR\Desktop\Test Result\benign (1).png"
+
+    custom_objects = {
+        'EncoderBlock': EncoderBlock,
+        'DecoderBlock': DecoderBlock
+    }
+
+    # Load the model with the custom objects specified
+    model = load_model(unet_model, custom_objects=custom_objects)
 
     # Perform segmentation
     deep_learning = DeepLearning(unet_model)
