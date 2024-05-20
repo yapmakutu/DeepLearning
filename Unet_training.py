@@ -3,7 +3,7 @@ import numpy as np
 from glob import glob
 from tensorflow.keras.preprocessing.image import load_img, img_to_array, ImageDataGenerator
 from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, EarlyStopping
-from Unet_model import build_unet_model  # Make sure this imports your U-Net model correctly
+from Unet_model import build_unet_model
 
 # Function to load a single image
 def load_image(image_path, size):
@@ -11,7 +11,7 @@ def load_image(image_path, size):
     img = img_to_array(img) / 255.0
     return img
 
-# Function to load images and masks
+# Function to load images and masks, combining multiple masks into one
 def load_dataset(image_dir, mask_dir, image_size):
     image_list = []
     mask_list = []
@@ -20,14 +20,19 @@ def load_dataset(image_dir, mask_dir, image_size):
         image = load_image(image_file, image_size)
         image_list.append(image)
 
-        mask_file = os.path.join(mask_dir, os.path.basename(image_file).replace('.png', '_mask.png'))
-        if os.path.exists(mask_file):
-            mask_img = load_image(mask_file, image_size)
-            mask_img = np.expand_dims(mask_img[:, :, 0], axis=-1)
-            mask_list.append(mask_img)
-        else:
-            print(f"Warning: Mask for {image_file} not found. Expected path: {mask_file}")
-            mask_list.append(np.zeros((image_size, image_size, 1), dtype=np.float32))
+        base_name = os.path.basename(image_file).replace('.png', '')
+        mask_files = glob(os.path.join(mask_dir, base_name + '_mask*.png'))
+
+        combined_mask = np.zeros((image_size, image_size, 1), dtype=np.float32)
+        for mask_file in mask_files:
+            if os.path.exists(mask_file):
+                mask_img = load_image(mask_file, image_size)
+                mask_img = np.expand_dims(mask_img[:, :, 0], axis=-1)
+                combined_mask = np.maximum(combined_mask, mask_img)
+            else:
+                print(f"Warning: Mask for {image_file} not found. Expected path: {mask_file}")
+
+        mask_list.append(combined_mask)
     return np.array(image_list), np.array(mask_list)
 
 def train_unet():
@@ -35,7 +40,8 @@ def train_unet():
     dataset_path = os.path.join(PROJECT_ROOT, 'Dataset', 'Dataset_BUSI_with_GT_split')
 
     IMAGE_SIZE = 256
-    BATCH_SIZE = 8
+    BATCH_SIZE = 16
+    EPOCHS = 15
 
     def get_split_data(split):
         images, masks = [], []
@@ -53,20 +59,21 @@ def train_unet():
     input_shape = (IMAGE_SIZE, IMAGE_SIZE, 1)
     model = build_unet_model(input_shape)
 
-    # Callbacks
+    steps_per_epoch = len(train_images) // BATCH_SIZE
+    validation_steps = len(validation_images) // BATCH_SIZE
+
     callbacks = [
-        ModelCheckpoint(os.path.join(PROJECT_ROOT, 'best_model.h5'), save_best_only=True, monitor='val_loss'),
+        ModelCheckpoint(os.path.join(PROJECT_ROOT, 'best_unet_model.h5'), save_best_only=True, monitor='val_loss'),
         ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=5, min_lr=0.00001),
-        EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+        EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
     ]
 
-    # Data Augmentation
     datagen = ImageDataGenerator(
-        rotation_range=20,
-        width_shift_range=0.2,
-        height_shift_range=0.2,
-        shear_range=0.2,
-        zoom_range=0.2,
+        rotation_range=10,
+        width_shift_range=0.1,
+        height_shift_range=0.1,
+        shear_range=0.1,
+        zoom_range=0.1,
         horizontal_flip=True,
         fill_mode='nearest'
     )
@@ -74,13 +81,12 @@ def train_unet():
     train_gen = datagen.flow(train_images, train_masks, batch_size=BATCH_SIZE)
     val_gen = ImageDataGenerator().flow(validation_images, validation_masks, batch_size=BATCH_SIZE)
 
-    # Train the model
     model.fit(
         train_gen,
-        steps_per_epoch=len(train_images) // BATCH_SIZE,
-        epochs=100,
+        steps_per_epoch=steps_per_epoch,
+        epochs=EPOCHS,
         validation_data=val_gen,
-        validation_steps=len(validation_images) // BATCH_SIZE,
+        validation_steps=validation_steps,
         callbacks=callbacks
     )
 

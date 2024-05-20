@@ -1,6 +1,8 @@
 from tensorflow.keras.layers import Layer, Conv2D, Dropout, UpSampling2D, concatenate, Add, Multiply, MaxPool2D, BatchNormalization, Input
 from tensorflow.keras.models import Model
 from tensorflow.keras.metrics import MeanIoU
+from tensorflow.keras.regularizers import l2
+from tensorflow.keras.optimizers.schedules import ExponentialDecay
 
 class EncoderBlock(Layer):
     def __init__(self, filters, rate, pooling=True, **kwargs):
@@ -9,16 +11,20 @@ class EncoderBlock(Layer):
         self.rate = rate
         self.pooling = pooling
         self.c1 = Conv2D(filters, kernel_size=3, strides=1, padding='same', activation='relu',
-                         kernel_initializer='he_normal')
+                         kernel_initializer='he_normal', kernel_regularizer=l2(1e-3))
+        self.bn1 = BatchNormalization()
         self.drop = Dropout(rate)
         self.c2 = Conv2D(filters, kernel_size=3, strides=1, padding='same', activation='relu',
-                         kernel_initializer='he_normal')
+                         kernel_initializer='he_normal', kernel_regularizer=l2(1e-3))
+        self.bn2 = BatchNormalization()
         self.pool = MaxPool2D()
 
     def call(self, X, **kwargs):
         x = self.c1(X)
+        x = self.bn1(x)
         x = self.drop(x)
         x = self.c2(x)
+        x = self.bn2(x)
         if self.pooling:
             y = self.pool(x)
             return y, x
@@ -62,10 +68,10 @@ class AttentionGate(Layer):
         super(AttentionGate, self).__init__(**kwargs)
         self.filters = filters
         self.bn = bn
-        self.normal = Conv2D(filters, kernel_size=3, padding='same', activation='relu', kernel_initializer='he_normal')
+        self.normal = Conv2D(filters, kernel_size=3, padding='same', activation='relu', kernel_initializer='he_normal', kernel_regularizer=l2(1e-3))
         self.down = Conv2D(filters, kernel_size=3, strides=2, padding='same', activation='relu',
-                           kernel_initializer='he_normal')
-        self.learn = Conv2D(1, kernel_size=1, padding='same', activation='sigmoid')
+                           kernel_initializer='he_normal', kernel_regularizer=l2(1e-3))
+        self.learn = Conv2D(1, kernel_size=1, padding='same', activation='sigmoid', kernel_regularizer=l2(1e-3))
         self.resample = UpSampling2D()
         self.BN = BatchNormalization()
 
@@ -143,6 +149,10 @@ def build_unet_model(input_shape):
         inputs=[input_layer],
         outputs=[output_layer]
     )
+
+    initial_learning_rate = 0.001
+    lr_schedule = ExponentialDecay(
+        initial_learning_rate, decay_steps=100000, decay_rate=0.96, staircase=True)
 
     model.compile(
         optimizer='adam',
